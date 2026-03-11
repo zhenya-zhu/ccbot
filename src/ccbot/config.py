@@ -1,7 +1,7 @@
 """Application configuration — reads env vars and exposes a singleton.
 
-Loads TELEGRAM_BOT_TOKEN, ALLOWED_USERS, tmux/Claude paths, and
-monitoring intervals from environment variables (with .env support).
+Loads TELEGRAM_BOT_TOKEN, ALLOWED_USERS, tmux/runtime paths, and monitoring
+intervals from environment variables (with .env support).
 .env loading priority: local .env (cwd) > $CCBOT_DIR/.env (default ~/.ccbot).
 The module-level `config` instance is imported by nearly every other module.
 
@@ -10,16 +10,40 @@ Key class: Config (singleton instantiated as `config`).
 
 import logging
 import os
+import shlex
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .runtimes import RUNTIME_CLAUDE, SUPPORTED_RUNTIMES
 from .utils import ccbot_dir
 
 logger = logging.getLogger(__name__)
 
 # Env vars that must not leak to child processes (e.g. Claude Code via tmux)
 SENSITIVE_ENV_VARS = {"TELEGRAM_BOT_TOKEN", "ALLOWED_USERS", "OPENAI_API_KEY"}
+
+
+def _ensure_codex_hooks_enabled(command: str) -> str:
+    """Append the experimental Codex hooks flag when it is not already enabled."""
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        if "codex_hooks" in command:
+            return command
+        return f"{command} --enable codex_hooks"
+
+    for idx, token in enumerate(parts):
+        if token == "--enable" and idx + 1 < len(parts) and parts[idx + 1] == "codex_hooks":
+            return command
+        if token == "--enable=codex_hooks":
+            return command
+        if token in {"-c", "--config"} and idx + 1 < len(parts):
+            value = parts[idx + 1].replace(" ", "")
+            if value == "features.codex_hooks=true":
+                return command
+
+    return f"{command} --enable codex_hooks"
 
 
 class Config:
@@ -61,8 +85,18 @@ class Config:
         self.tmux_session_name = os.getenv("TMUX_SESSION_NAME", "ccbot")
         self.tmux_main_window_name = "__main__"
 
-        # Claude command to run in new windows
+        self.runtime = os.getenv("CCBOT_RUNTIME", RUNTIME_CLAUDE)
+        if self.runtime not in SUPPORTED_RUNTIMES:
+            raise ValueError(
+                "CCBOT_RUNTIME must be one of "
+                f"{', '.join(sorted(SUPPORTED_RUNTIMES))}"
+            )
+
+        # Commands used to start a runtime in new windows
         self.claude_command = os.getenv("CLAUDE_COMMAND", "claude")
+        self.codex_command = _ensure_codex_hooks_enabled(
+            os.getenv("CODEX_COMMAND", "codex --no-alt-screen")
+        )
 
         # All state files live under config_dir
         self.state_file = self.config_dir / "state.json"
@@ -81,6 +115,16 @@ class Config:
             self.claude_projects_path = Path(claude_config_dir) / "projects"
         else:
             self.claude_projects_path = Path.home() / ".claude" / "projects"
+
+        codex_home = os.getenv("CODEX_HOME", "").strip()
+        self.codex_home = (
+            Path(codex_home).expanduser()
+            if codex_home
+            else Path.home() / ".codex"
+        )
+        self.codex_sessions_path = self.codex_home / "sessions"
+        self.codex_session_index_file = self.codex_home / "session_index.jsonl"
+        self.codex_hooks_file = self.codex_home / "hooks.json"
 
         self.monitor_poll_interval = float(os.getenv("MONITOR_POLL_INTERVAL", "2.0"))
 
@@ -106,12 +150,15 @@ class Config:
 
         logger.debug(
             "Config initialized: dir=%s, token=%s..., allowed_users=%d, "
-            "tmux_session=%s, claude_projects_path=%s",
+            "tmux_session=%s, runtime=%s, claude_projects_path=%s, "
+            "codex_home=%s",
             self.config_dir,
             self.telegram_bot_token[:8],
             len(self.allowed_users),
             self.tmux_session_name,
+            self.runtime,
             self.claude_projects_path,
+            self.codex_home,
         )
 
     def is_user_allowed(self, user_id: int) -> bool:

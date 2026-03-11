@@ -1,7 +1,7 @@
 [project]
 name = "ccbot"
 version = "0.1.0"
-description = "Telegram Bot for monitoring Claude Code sessions"
+description = "Telegram Bot for monitoring runtime sessions in tmux"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,7 +11,7 @@ dependencies = [
     "libtmux>=0.37.0",
     "Pillow>=10.0.0",
     "aiofiles>=24.0.0",
-    "telegramify-markdown==0.5.0"
+    "telegramify-markdown==0.5.0",
 ]
 
 [project.scripts]

@@ -1,4 +1,4 @@
-"""Session monitoring service — watches JSONL files for new messages.
+"""Session monitoring service — watches runtime JSONL files for new messages.
 
 Runs an async polling loop that:
   1. Loads the current session_map to know which sessions to watch.
@@ -22,6 +22,7 @@ import aiofiles
 
 from .config import config
 from .monitor_state import MonitorState, TrackedSession
+from .runtimes import RUNTIME_CLAUDE
 from .tmux_manager import tmux_manager
 from .transcript_parser import TranscriptParser
 from .utils import read_cwd_from_jsonl
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SessionInfo:
-    """Information about a Claude Code session."""
+    """Information about a runtime session."""
 
     session_id: str
     file_path: Path
@@ -52,7 +53,7 @@ class NewMessage:
 
 
 class SessionMonitor:
-    """Monitors Claude Code sessions for new assistant messages.
+    """Monitors runtime sessions for new assistant messages.
 
     Uses simple async polling with aiofiles for non-blocking I/O.
     Emits both intermediate and complete assistant messages.
@@ -102,7 +103,7 @@ class SessionMonitor:
         return cwds
 
     async def scan_projects(self) -> list[SessionInfo]:
-        """Scan projects that have active tmux windows."""
+        """Scan Claude projects that have active tmux windows."""
         active_cwds = await self._get_active_cwds()
         if not active_cwds:
             return []
@@ -193,6 +194,39 @@ class SessionMonitor:
 
         return sessions
 
+    async def _resolve_active_sessions(
+        self, active_session_ids: set[str]
+    ) -> list[SessionInfo]:
+        """Resolve transcript files for the active runtime sessions."""
+        if config.runtime == RUNTIME_CLAUDE:
+            return await self.scan_projects()
+
+        from .session import session_manager
+
+        sessions: list[SessionInfo] = []
+        seen: set[str] = set()
+        for state in session_manager.window_states.values():
+            if not state.session_id or state.session_id not in active_session_ids:
+                continue
+            if state.session_id in seen:
+                continue
+            file_path = session_manager.resolve_session_file_path(
+                state.session_id,
+                state.cwd,
+                runtime=state.runtime,
+                transcript_path=state.transcript_path,
+            )
+            if not file_path or not file_path.exists():
+                continue
+            sessions.append(
+                SessionInfo(
+                    session_id=state.session_id,
+                    file_path=file_path,
+                )
+            )
+            seen.add(state.session_id)
+        return sessions
+
     async def _read_new_lines(
         self, session: TrackedSession, file_path: Path
     ) -> list[dict]:
@@ -277,8 +311,7 @@ class SessionMonitor:
         """
         new_messages = []
 
-        # Scan projects to get available session files
-        sessions = await self.scan_projects()
+        sessions = await self._resolve_active_sessions(active_session_ids)
 
         # Only process sessions that are in session_map
         for session_info in sessions:

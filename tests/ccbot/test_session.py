@@ -1,8 +1,11 @@
 """Tests for SessionManager pure dict operations."""
 
+import json
+
 import pytest
 
 from ccbot.session import SessionManager
+from ccbot.runtimes import RUNTIME_CODEX
 
 
 @pytest.fixture
@@ -142,6 +145,67 @@ class TestDisplayNames:
         mgr.bind_thread(100, 1, "@1")
         # No display name set, fallback to window_id
         assert mgr.get_display_name("@1") == "@1"
+
+
+class TestCodexSessions:
+    @pytest.mark.asyncio
+    async def test_resolve_session_for_codex_window(
+        self, mgr: SessionManager, monkeypatch, tmp_path
+    ) -> None:
+        from ccbot import session as session_module
+
+        transcript_file = (
+            tmp_path
+            / "2026"
+            / "03"
+            / "11"
+            / "rollout-2026-03-11T18-27-22-019cdc6f-d3c8-7003-9730-bf3608dcaec9.jsonl"
+        )
+        transcript_file.parent.mkdir(parents=True)
+        transcript_file.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "session_meta",
+                            "payload": {
+                                "id": "019cdc6f-d3c8-7003-9730-bf3608dcaec9",
+                                "cwd": "/tmp/project",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "response_item",
+                            "payload": {
+                                "type": "message",
+                                "role": "user",
+                                "content": [
+                                    {"type": "input_text", "text": "Native Codex summary"}
+                                ],
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(session_module.config, "runtime", RUNTIME_CODEX)
+        monkeypatch.setattr(session_module.config, "codex_sessions_path", tmp_path)
+
+        state = mgr.get_window_state("@4")
+        state.session_id = "019cdc6f-d3c8-7003-9730-bf3608dcaec9"
+        state.cwd = "/tmp/project"
+        state.runtime = RUNTIME_CODEX
+        state.transcript_path = str(transcript_file)
+
+        session = await mgr.resolve_session_for_window("@4")
+
+        assert session is not None
+        assert session.session_id == "019cdc6f-d3c8-7003-9730-bf3608dcaec9"
+        assert session.summary == "Native Codex summary"
+        assert session.file_path == str(transcript_file)
 
 
 class TestIsWindowId:
