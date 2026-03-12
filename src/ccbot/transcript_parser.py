@@ -32,6 +32,31 @@ class ParsedMessage:
     tool_name: str | None = None  # For tool_use messages
 
 
+@dataclass(frozen=True)
+class CodexPromptOption:
+    """A single option from Codex request_user_input."""
+
+    label: str
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class CodexPromptQuestion:
+    """A single Codex request_user_input question."""
+
+    header: str
+    question_id: str
+    question: str
+    options: tuple[CodexPromptOption, ...]
+
+
+@dataclass(frozen=True)
+class CodexPromptPayload:
+    """Structured prompt payload for Codex request_user_input."""
+
+    questions: tuple[CodexPromptQuestion, ...]
+
+
 @dataclass
 class ParsedEntry:
     """A single parsed message entry ready for display."""
@@ -49,6 +74,7 @@ class ParsedEntry:
     image_data: list[tuple[str, bytes]] | None = (
         None  # For tool_result entries with images: (media_type, raw_bytes)
     )
+    interactive_prompt: CodexPromptPayload | None = None
 
 
 @dataclass
@@ -58,6 +84,7 @@ class PendingToolInfo:
     summary: str  # Formatted tool summary (e.g. "**Read**(file.py)")
     tool_name: str  # Tool name (e.g. "Read", "Edit")
     input_data: Any = None  # Tool input parameters (for Edit to generate diff)
+    interactive_prompt: CodexPromptPayload | None = None
 
 
 class TranscriptParser:
@@ -217,7 +244,7 @@ class TranscriptParser:
                 summary = f"{len(todos)} item(s)"
         elif name == "TodoRead":
             summary = ""
-        elif name == "AskUserQuestion":
+        elif name in ("AskUserQuestion", "request_user_input"):
             questions = input_data.get("questions", [])
             if isinstance(questions, list) and questions:
                 q = questions[0]
@@ -297,6 +324,61 @@ class TranscriptParser:
             return json.loads(raw_input)
         except json.JSONDecodeError:
             return raw_input
+
+    @staticmethod
+    def _parse_codex_prompt_payload(raw_input: Any) -> CodexPromptPayload | None:
+        """Parse Codex request_user_input arguments into a structured payload."""
+        if not isinstance(raw_input, dict):
+            return None
+
+        raw_questions = raw_input.get("questions")
+        if not isinstance(raw_questions, list):
+            return None
+
+        questions: list[CodexPromptQuestion] = []
+        for index, item in enumerate(raw_questions):
+            if not isinstance(item, dict):
+                continue
+
+            question_text = str(item.get("question", "")).strip()
+            if not question_text:
+                continue
+
+            raw_options = item.get("options", [])
+            if not isinstance(raw_options, list):
+                continue
+
+            options: list[CodexPromptOption] = []
+            for opt in raw_options:
+                if not isinstance(opt, dict):
+                    continue
+                label = str(opt.get("label", "")).strip()
+                if not label:
+                    continue
+                options.append(
+                    CodexPromptOption(
+                        label=label,
+                        description=str(opt.get("description", "")).strip(),
+                    )
+                )
+
+            if not options:
+                continue
+
+            header = str(item.get("header", "")).strip()
+            question_id = str(item.get("id", "")).strip() or f"question_{index + 1}"
+            questions.append(
+                CodexPromptQuestion(
+                    header=header,
+                    question_id=question_id,
+                    question=question_text,
+                    options=tuple(options),
+                )
+            )
+
+        if not questions:
+            return None
+        return CodexPromptPayload(questions=tuple(questions))
 
     @classmethod
     def parse_message(cls, data: dict) -> ParsedMessage | None:
@@ -596,11 +678,17 @@ class TranscriptParser:
             tool_input = cls._decode_tool_input(raw_input)
             summary = cls.format_tool_use_summary(name, tool_input)
             input_data = tool_input if name in ("Edit", "NotebookEdit") else None
+            interactive_prompt = (
+                cls._parse_codex_prompt_payload(tool_input)
+                if name == "request_user_input"
+                else None
+            )
             if tool_id:
                 pending_tools[tool_id] = PendingToolInfo(
                     summary=summary,
                     tool_name=name,
                     input_data=input_data,
+                    interactive_prompt=interactive_prompt,
                 )
             return [
                 ParsedEntry(
@@ -610,6 +698,7 @@ class TranscriptParser:
                     tool_use_id=tool_id,
                     timestamp=entry_timestamp,
                     tool_name=name,
+                    interactive_prompt=interactive_prompt,
                 )
             ]
 
@@ -633,6 +722,8 @@ class TranscriptParser:
             tool_id = str(payload.get("call_id", "")).strip() or None
             result_text = str(payload.get("output", "")).strip()
             tool_info = pending_tools.pop(tool_id, None) if tool_id else None
+            if tool_info and tool_info.tool_name == "request_user_input":
+                return []
             entry = cls._build_tool_result_entry(
                 timestamp=entry_timestamp,
                 tool_use_id=tool_id,
@@ -668,6 +759,7 @@ class TranscriptParser:
         """
         result: list[ParsedEntry] = []
         last_cmd_name: str | None = None
+        codex_tool_use_ids: set[str] = set()
         # Pending tool_use blocks keyed by id
         _carry_over = pending_tools is not None
         if pending_tools is None:
@@ -679,6 +771,9 @@ class TranscriptParser:
             codex_entries = cls._parse_codex_response_item(data, pending_tools)
             if codex_entries is not None:
                 result.extend(codex_entries)
+                for entry in codex_entries:
+                    if entry.content_type == "tool_use" and entry.tool_use_id:
+                        codex_tool_use_ids.add(entry.tool_use_id)
                 continue
 
             msg_type = cls.get_message_type(data)
@@ -988,6 +1083,8 @@ class TranscriptParser:
         remaining_pending = dict(pending_tools)
         if not _carry_over:
             for tool_id, tool_info in pending_tools.items():
+                if tool_id in codex_tool_use_ids:
+                    continue
                 result.append(
                     ParsedEntry(
                         role="assistant",

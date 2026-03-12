@@ -64,6 +64,25 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 ALLOWED_USERS=your_telegram_user_id
 ```
 
+You can also keep a more complete manual config like this:
+
+```ini
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+ALLOWED_USERS=123456789
+
+# Default runtime for new bot processes: claude or codex
+CCBOT_RUNTIME=claude
+
+# Commands used when opening new tmux windows
+CLAUDE_COMMAND=claude
+CODEX_COMMAND=codex --no-alt-screen
+
+# Optional
+TMUX_SESSION_NAME=ccbot
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
 Useful optional settings:
 
 | Variable | Default | Description |
@@ -73,6 +92,13 @@ Useful optional settings:
 | `CODEX_COMMAND` | `codex --no-alt-screen` | Codex command |
 | `TMUX_SESSION_NAME` | `ccbot` | tmux session name |
 | `OPENAI_API_KEY` | _(empty)_ | Needed only for voice transcription |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Optional OpenAI-compatible base URL |
+
+Notes:
+
+- `ALLOWED_USERS` accepts one or more Telegram user IDs separated by commas.
+- `ccbot --run claude|codex` only affects the current startup and does not rewrite your `.env`.
+- If you installed from source, you can also keep a project-local `.env` for testing, but `~/.ccbot/.env` is the normal long-term setup.
 
 If you run on a VPS with no interactive terminal for approvals, you may want a
 less interactive Claude Code command, for example:
@@ -119,9 +145,6 @@ To use Codex just for this bot process:
 ```bash
 ccbot --run codex
 ```
-
-`ccbot --run claude|codex` only affects the current process. It does not edit
-your `.env`.
 
 ## Daily Use
 

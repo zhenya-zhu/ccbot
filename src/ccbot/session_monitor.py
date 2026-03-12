@@ -24,7 +24,7 @@ from .config import config
 from .monitor_state import MonitorState, TrackedSession
 from .runtimes import RUNTIME_CLAUDE
 from .tmux_manager import tmux_manager
-from .transcript_parser import TranscriptParser
+from .transcript_parser import CodexPromptPayload, TranscriptParser
 from .utils import read_cwd_from_jsonl
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,7 @@ class NewMessage:
     role: str = "assistant"  # "user" or "assistant"
     tool_name: str | None = None  # For tool_use messages, the tool name
     image_data: list[tuple[str, bytes]] | None = None  # From tool_result images
+    interactive_prompt: CodexPromptPayload | None = None
 
 
 class SessionMonitor:
@@ -394,6 +395,7 @@ class SessionMonitor:
                             role=entry.role,
                             tool_name=entry.tool_name,
                             image_data=entry.image_data,
+                            interactive_prompt=entry.interactive_prompt,
                         )
                     )
 

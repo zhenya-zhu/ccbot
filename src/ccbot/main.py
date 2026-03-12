@@ -10,9 +10,15 @@ Handles three execution modes:
 import argparse
 import logging
 import os
+import re
+import shlex
+import subprocess
 import sys
 
-from .runtimes import SUPPORTED_RUNTIMES
+from .runtimes import RUNTIME_CODEX, SUPPORTED_RUNTIMES
+
+_MIN_CODEX_VERSION = (0, 114, 0)
+_VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 
 
 def _apply_global_cli_overrides(argv: list[str]) -> list[str]:
@@ -63,6 +69,74 @@ def _apply_global_cli_overrides(argv: list[str]) -> list[str]:
     return [argv[0]]
 
 
+def _build_codex_version_command(codex_command: str) -> list[str]:
+    """Build the command used to query the Codex CLI version."""
+    parts = shlex.split(codex_command)
+    if not parts:
+        raise ValueError("CODEX_COMMAND is empty")
+
+    for index, token in enumerate(parts):
+        if os.path.basename(token).startswith("codex"):
+            return [*parts[: index + 1], "--version"]
+
+    return [parts[0], "--version"]
+
+
+def _parse_version(output: str) -> tuple[int, int, int] | None:
+    """Extract a semantic version triple from command output."""
+    match = _VERSION_RE.search(output)
+    if not match:
+        return None
+    major, minor, patch = match.groups()
+    return (int(major), int(minor), int(patch))
+
+
+def _ensure_runtime_requirements(config: object) -> None:
+    """Fail early when the selected Claude Code / Codex runtime is unsupported."""
+    runtime = getattr(config, "runtime", "")
+    if runtime != RUNTIME_CODEX:
+        return
+
+    codex_command = str(getattr(config, "codex_command", "")).strip()
+    version_cmd = _build_codex_version_command(codex_command)
+
+    try:
+        result = subprocess.run(
+            version_cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise ValueError(
+            "Unable to run the Codex version check. "
+            f"Tried: {' '.join(version_cmd)}. Error: {exc}"
+        ) from exc
+
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0:
+        raise ValueError(
+            "Unable to detect the Codex version. "
+            f"Tried: {' '.join(version_cmd)}. Output: {output or '(empty)'}"
+        )
+
+    parsed = _parse_version(output)
+    if parsed is None:
+        raise ValueError(
+            "Unable to parse the Codex version output. "
+            f"Tried: {' '.join(version_cmd)}. Output: {output or '(empty)'}"
+        )
+
+    if parsed < _MIN_CODEX_VERSION:
+        current = ".".join(str(part) for part in parsed)
+        required = ".".join(str(part) for part in _MIN_CODEX_VERSION)
+        raise ValueError(
+            "Codex support requires codex-cli "
+            f">= {required}, but detected {current}. "
+            "Please upgrade Codex and retry."
+        )
+
+
 def main() -> None:
     """Main entry point."""
     argv = _apply_global_cli_overrides(sys.argv)
@@ -99,6 +173,12 @@ def main() -> None:
         print()
         print("Get your bot token from @BotFather on Telegram.")
         print("Get your user ID from @userinfobot on Telegram.")
+        sys.exit(1)
+
+    try:
+        _ensure_runtime_requirements(config)
+    except ValueError as e:
+        print(f"Error: {e}")
         sys.exit(1)
 
     logging.getLogger("ccbot").setLevel(logging.DEBUG)

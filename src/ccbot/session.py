@@ -595,6 +595,22 @@ class SessionManager:
         self._save_state()
         logger.info("Cleared session for window_id %s", window_id)
 
+    def remove_window(self, window_id: str) -> None:
+        """Remove persisted state for a tmux window that no longer exists."""
+        self.window_states.pop(window_id, None)
+        self.window_display_names.pop(window_id, None)
+
+        empty_users: list[int] = []
+        for user_id, offsets in self.user_window_offsets.items():
+            offsets.pop(window_id, None)
+            if not offsets:
+                empty_users.append(user_id)
+        for user_id in empty_users:
+            del self.user_window_offsets[user_id]
+
+        self._save_state()
+        logger.info("Removed state for window_id %s", window_id)
+
     @staticmethod
     def _encode_cwd(cwd: str) -> str:
         """Encode a cwd path to match Claude Code's project directory naming.

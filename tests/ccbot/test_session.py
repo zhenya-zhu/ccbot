@@ -110,6 +110,17 @@ class TestWindowState:
         mgr.clear_window_session("@1")
         assert mgr.get_window_state("@1").session_id == ""
 
+    def test_remove_window_clears_cached_state(self, mgr: SessionManager) -> None:
+        mgr.get_window_state("@1").session_id = "abc"
+        mgr.window_display_names["@1"] = "proj"
+        mgr.user_window_offsets[100] = {"@1": 42}
+
+        mgr.remove_window("@1")
+
+        assert "@1" not in mgr.window_states
+        assert "@1" not in mgr.window_display_names
+        assert 100 not in mgr.user_window_offsets
+
 
 class TestResolveWindowForThread:
     def test_none_thread_id_returns_none(self, mgr: SessionManager) -> None:

@@ -45,15 +45,34 @@ class TestConfigValid:
         monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
         cfg = Config()
         assert cfg.runtime == RUNTIME_CODEX
-        assert cfg.codex_command == "codex --no-alt-screen --enable codex_hooks"
+        assert cfg.codex_command == (
+            "codex --no-alt-screen --enable codex_hooks "
+            "--enable default_mode_request_user_input"
+        )
         assert cfg.codex_home == tmp_path / ".codex"
         assert cfg.codex_sessions_path == tmp_path / ".codex" / "sessions"
 
     def test_codex_command_keeps_existing_hook_flag(self, monkeypatch):
         monkeypatch.setenv("CCBOT_RUNTIME", RUNTIME_CODEX)
+        monkeypatch.setenv(
+            "CODEX_COMMAND",
+            "codex --no-alt-screen --enable codex_hooks "
+            "--enable default_mode_request_user_input",
+        )
+        cfg = Config()
+        assert cfg.codex_command == (
+            "codex --no-alt-screen --enable codex_hooks "
+            "--enable default_mode_request_user_input"
+        )
+
+    def test_codex_command_adds_only_missing_feature(self, monkeypatch):
+        monkeypatch.setenv("CCBOT_RUNTIME", RUNTIME_CODEX)
         monkeypatch.setenv("CODEX_COMMAND", "codex --no-alt-screen --enable codex_hooks")
         cfg = Config()
-        assert cfg.codex_command == "codex --no-alt-screen --enable codex_hooks"
+        assert cfg.codex_command == (
+            "codex --no-alt-screen --enable codex_hooks "
+            "--enable default_mode_request_user_input"
+        )
 
     def test_is_user_allowed_true(self):
         cfg = Config()

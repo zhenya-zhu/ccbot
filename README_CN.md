@@ -61,6 +61,25 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 ALLOWED_USERS=your_telegram_user_id
 ```
 
+如果你想手动一次配完整，也可以直接写成这样：
+
+```ini
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+ALLOWED_USERS=123456789
+
+# 默认运行时：claude 或 codex
+CCBOT_RUNTIME=claude
+
+# 新 tmux 窗口里实际启动的命令
+CLAUDE_COMMAND=claude
+CODEX_COMMAND=codex --no-alt-screen
+
+# 可选
+TMUX_SESSION_NAME=ccbot
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
 常用可选项：
 
 | 变量 | 默认值 | 说明 |
@@ -70,6 +89,13 @@ ALLOWED_USERS=your_telegram_user_id
 | `CODEX_COMMAND` | `codex --no-alt-screen` | Codex 命令 |
 | `TMUX_SESSION_NAME` | `ccbot` | tmux 会话名 |
 | `OPENAI_API_KEY` | _(空)_ | 只在语音转文字时需要 |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 可选的 OpenAI 兼容接口地址 |
+
+说明：
+
+- `ALLOWED_USERS` 支持填写一个或多个 Telegram 用户 ID，用逗号分隔。
+- `ccbot --run claude|codex` 只影响这一次启动，不会改写 `.env`。
+- 如果你是从源码运行，也可以临时放项目内 `.env` 做测试，但长期配置通常还是放在 `~/.ccbot/.env`。
 
 如果你是在没有交互终端的 VPS 上运行，Claude Code 命令可以考虑设置得更少交互一些，例如：
 
@@ -114,8 +140,6 @@ uv run ccbot
 ```bash
 ccbot --run codex
 ```
-
-`ccbot --run claude|codex` 只影响当前这次启动，不会改写 `.env`。
 
 ## 日常使用
 

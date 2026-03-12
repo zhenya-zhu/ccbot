@@ -22,28 +22,46 @@ logger = logging.getLogger(__name__)
 
 # Env vars that must not leak to child processes (e.g. Claude Code via tmux)
 SENSITIVE_ENV_VARS = {"TELEGRAM_BOT_TOKEN", "ALLOWED_USERS", "OPENAI_API_KEY"}
+_REQUIRED_CODEX_FEATURES = ("codex_hooks", "default_mode_request_user_input")
 
 
-def _ensure_codex_hooks_enabled(command: str) -> str:
-    """Append the experimental Codex hooks flag when it is not already enabled."""
+def _ensure_codex_features_enabled(command: str) -> str:
+    """Append required Codex feature flags when they are not already enabled."""
     try:
         parts = shlex.split(command)
     except ValueError:
-        if "codex_hooks" in command:
+        missing = [
+            feature for feature in _REQUIRED_CODEX_FEATURES if feature not in command
+        ]
+        if not missing:
             return command
-        return f"{command} --enable codex_hooks"
+        suffix = " ".join(f"--enable {feature}" for feature in missing)
+        return f"{command} {suffix}".strip()
 
+    enabled_features: set[str] = set()
     for idx, token in enumerate(parts):
-        if token == "--enable" and idx + 1 < len(parts) and parts[idx + 1] == "codex_hooks":
-            return command
-        if token == "--enable=codex_hooks":
-            return command
+        if token == "--enable" and idx + 1 < len(parts):
+            enabled_features.add(parts[idx + 1])
+            continue
+        if token.startswith("--enable="):
+            enabled_features.add(token.split("=", 1)[1])
+            continue
         if token in {"-c", "--config"} and idx + 1 < len(parts):
             value = parts[idx + 1].replace(" ", "")
-            if value == "features.codex_hooks=true":
-                return command
+            if not value.startswith("features.") or not value.endswith("=true"):
+                continue
+            feature_name = value[len("features.") : -len("=true")]
+            if feature_name:
+                enabled_features.add(feature_name)
 
-    return f"{command} --enable codex_hooks"
+    missing = [
+        feature for feature in _REQUIRED_CODEX_FEATURES if feature not in enabled_features
+    ]
+    if not missing:
+        return command
+
+    suffix = " ".join(f"--enable {feature}" for feature in missing)
+    return f"{command} {suffix}".strip()
 
 
 class Config:
@@ -94,7 +112,7 @@ class Config:
 
         # Commands used to start a runtime in new windows
         self.claude_command = os.getenv("CLAUDE_COMMAND", "claude")
-        self.codex_command = _ensure_codex_hooks_enabled(
+        self.codex_command = _ensure_codex_features_enabled(
             os.getenv("CODEX_COMMAND", "codex --no-alt-screen")
         )
 
