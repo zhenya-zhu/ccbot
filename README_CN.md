@@ -54,6 +54,15 @@ uv sync
 
 ## 基本配置
 
+**1. 创建 Telegram Bot 并启用话题模式：**
+
+1. 与 [@BotFather](https://t.me/BotFather) 对话创建新 Bot 并获取 Token
+2. 打开 @BotFather 的个人页面，点击 **Open App** 启动小程序
+3. 选择你的 Bot，进入 **Settings** > **Bot Settings**
+4. 启用 **Threaded Mode**（话题模式）
+
+**2. 配置环境变量：**
+
 创建 `~/.ccbot/.env`：
 
 ```ini
@@ -85,9 +94,13 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `CCBOT_RUNTIME` | `claude` | 新窗口默认启动 `claude` 还是 `codex` |
+| `CCBOT_DIR` | `~/.ccbot` | 配置和状态目录 |
 | `CLAUDE_COMMAND` | `claude` | Claude Code 命令 |
 | `CODEX_COMMAND` | `codex --no-alt-screen` | Codex 命令 |
+| `CODEX_HOME` | `~/.codex` | Codex 配置和会话目录 |
 | `TMUX_SESSION_NAME` | `ccbot` | tmux 会话名 |
+| `MONITOR_POLL_INTERVAL` | `2.0` | 会话监控轮询间隔（秒） |
+| `CCBOT_SHOW_HIDDEN_DIRS` | `false` | 目录选择器里是否显示隐藏目录 |
 | `OPENAI_API_KEY` | _(空)_ | 只在语音转文字时需要 |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 可选的 OpenAI 兼容接口地址 |
 
@@ -120,8 +133,53 @@ ccbot hook --install --run all
 Codex 在 `v0.114.0` 里仍然把 hooks 当实验特性。如果你是在 CCBot 之外手动启动 Codex，请自己加上：
 
 ```bash
-codex -c features.codex_hooks=true
+codex --enable codex_hooks
 ```
+
+如果你不想用 `ccbot hook --install`，也可以手动写配置：
+
+Claude Code 的 `~/.claude/settings.json`：
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccbot hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Codex 的 `~/.codex/hooks.json`：
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccbot hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+这样 CCBot 才能持续更新 `session_map.json`，把 tmux 窗口和正确的
+Claude Code / Codex 会话关联起来。
 
 ## 启动 Bot
 
@@ -160,9 +218,14 @@ ccbot --run codex
 | `/history` | 查看当前话题的消息历史 |
 | `/screenshot` | 截图当前终端 |
 | `/esc` | 发送 Escape 中断当前会话 |
+| `/unbind` | 解绑当前话题，但保留 tmux 窗口继续运行 |
+| `/kill` | 结束当前话题对应的会话 |
 
-大多数其他 `/...` 命令也会直接转发给当前话题对应的 Claude Code 或 Codex，
-例如 `/clear`、`/compact`、`/cost`、`/review`。
+大多数其他 `/...` 命令也会直接转发给当前运行时。
+
+- Claude Code 菜单里会有 `/usage`、`/help`、`/memory`、`/model` 等命令。
+- Codex 菜单里会有 `/status`、`/plan` 等命令。
+- 菜单里没显示的命令仍然可以手动输入，例如 `/clear`、`/compact`、`/review`、`/model`。
 
 ## 手动使用 tmux
 
@@ -179,5 +242,5 @@ claude
 ```bash
 tmux attach -t ccbot
 tmux new-window -n myproject -c ~/Code/myproject
-codex --no-alt-screen --enable codex_hooks
+codex --no-alt-screen --enable codex_hooks --enable default_mode_request_user_input
 ```

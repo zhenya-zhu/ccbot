@@ -57,6 +57,15 @@ uv sync
 
 ## Basic Config
 
+**1. Create a Telegram bot and enable Threaded Mode:**
+
+1. Chat with [@BotFather](https://t.me/BotFather) to create a new bot and get your bot token
+2. Open @BotFather's profile page, tap **Open App** to launch the mini app
+3. Select your bot, then go to **Settings** > **Bot Settings**
+4. Enable **Threaded Mode**
+
+**2. Configure environment variables:**
+
 Create `~/.ccbot/.env`:
 
 ```ini
@@ -88,9 +97,13 @@ Useful optional settings:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CCBOT_RUNTIME` | `claude` | Which CLI to start in new windows: `claude` or `codex` |
+| `CCBOT_DIR` | `~/.ccbot` | Config and state directory |
 | `CLAUDE_COMMAND` | `claude` | Claude Code command |
 | `CODEX_COMMAND` | `codex --no-alt-screen` | Codex command |
+| `CODEX_HOME` | `~/.codex` | Codex config/session directory |
 | `TMUX_SESSION_NAME` | `ccbot` | tmux session name |
+| `MONITOR_POLL_INTERVAL` | `2.0` | Session monitor polling interval in seconds |
+| `CCBOT_SHOW_HIDDEN_DIRS` | `false` | Show hidden directories in the picker |
 | `OPENAI_API_KEY` | _(empty)_ | Needed only for voice transcription |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Optional OpenAI-compatible base URL |
 
@@ -125,8 +138,53 @@ Codex hooks are still experimental in `v0.114.0`. If you start Codex manually
 outside CCBot, enable them with:
 
 ```bash
-codex -c features.codex_hooks=true
+codex --enable codex_hooks
 ```
+
+If you prefer to configure hooks manually instead of using `ccbot hook --install`:
+
+Claude Code `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccbot hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Codex `~/.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccbot hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This lets CCBot keep `session_map.json` updated so tmux windows stay linked to
+the right Claude Code or Codex session.
 
 ## Start The Bot
 
@@ -165,9 +223,14 @@ session. Closing the topic closes the linked tmux window.
 | `/history` | Show message history for the current topic |
 | `/screenshot` | Capture the terminal as an image |
 | `/esc` | Send Escape to interrupt the current session |
+| `/unbind` | Unbind this topic but keep the tmux window running |
+| `/kill` | End the session for this topic |
 
-Most other `/...` commands are forwarded directly to the current Claude Code or
-Codex session, for example `/clear`, `/compact`, `/cost`, or `/review`.
+Most other `/...` commands are forwarded directly to the current runtime.
+
+- Claude Code menu includes commands such as `/usage`, `/help`, `/memory`, and `/model`.
+- Codex menu includes commands such as `/status` and `/plan`.
+- You can still type other runtime commands manually, for example `/clear`, `/compact`, `/review`, or `/model`.
 
 ## Manual tmux Use
 
@@ -184,5 +247,5 @@ Or with Codex:
 ```bash
 tmux attach -t ccbot
 tmux new-window -n myproject -c ~/Code/myproject
-codex --no-alt-screen --enable codex_hooks
+codex --no-alt-screen --enable codex_hooks --enable default_mode_request_user_input
 ```
